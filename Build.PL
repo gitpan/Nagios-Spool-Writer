@@ -1,0 +1,21 @@
+use strict;
+use warnings;
+use utf8;
+use Module::Build;
+
+my $builder = Module::Build->new(
+    module_name         => 'Nagios::Spool::Writer',
+    license             => 'perl',
+    dist_author         => 'Danijel Tašov <dt@korn.shell.la>',
+    dist_version_from   => 'lib/Nagios/Spool/Writer.pm',
+    dist_abstract       => 'drop check results into nagios\' spool dir',
+    requires => {
+        'Test::More' => 0,
+        'File::Temp' => 0,
+        'version'    => 0,
+        'Moose'      => 0,
+    },
+    add_to_cleanup      => [ 'Nagios-Spool-Writer-*' ],
+);
+
+$builder->create_build_script();
