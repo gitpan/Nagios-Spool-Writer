@@ -5,13 +5,13 @@ use Moose;
 use Carp;
 use File::Temp;
 use Fcntl;
-use version; our $VERSION = qv('0.0.1');
+use version; our $VERSION = qv('0.0.2');
 
 my $TEMPLATE = "cXXXXXX";
 my %RETURN_CODES = (
   0 => 'OK',
   1 => 'WARNING',
-  2 => 'ERROR',
+  2 => 'CRITICAL',
   3 => 'UNKNOWN',
 );
 
@@ -86,7 +86,8 @@ sub write_file {
 
 sub _status_code {
   my $self = shift;
-  return $RETURN_CODES{$self->return_code} // 'UNKNOWN';
+  my $r = $RETURN_CODES{$self->return_code};
+  return defined($r) ? $r : 'UNKNOWN';
 }
 
 sub _quoted_output {
@@ -195,7 +196,7 @@ feature may disappear in the future.
 
 =head1 AUTHOR
 
-Danijel Tasov, <dt@korn.shell.la>
+Danijel Tasov, <data@cpan.org>
 
 =head1 COPYRIGHT
 

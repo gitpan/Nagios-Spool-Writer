@@ -1,8 +1,8 @@
 ---
 name: Nagios-Spool-Writer
-version: v0.0.1
+version: v0.0.2
 author:
-  - 'Danijel Tašov <dt@korn.shell.la>'
+  - 'Danijel Tašov <data@cpan.org>'
 abstract: drop check results into nagios' spool dir
 license: perl
 resources:
@@ -17,7 +17,7 @@ configure_requires:
 provides:
   Nagios::Spool::Writer:
     file: lib/Nagios/Spool/Writer.pm
-    version: v0.0.1
+    version: v0.0.2
 generated_by: Module::Build version 0.35
 meta-spec:
   url: http://module-build.sourceforge.net/META-spec-v1.4.html
