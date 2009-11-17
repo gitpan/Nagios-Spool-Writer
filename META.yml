@@ -1,6 +1,6 @@
 ---
 name: Nagios-Spool-Writer
-version: v0.0.2
+version: v0.0.3
 author:
   - 'Danijel Tašov <data@cpan.org>'
 abstract: drop check results into nagios' spool dir
@@ -10,6 +10,7 @@ resources:
 requires:
   File::Temp: 0
   Moose: 0
+  Nagios::Plugin: 0
   Test::More: 0
   version: 0
 configure_requires:
@@ -17,7 +18,7 @@ configure_requires:
 provides:
   Nagios::Spool::Writer:
     file: lib/Nagios/Spool/Writer.pm
-    version: v0.0.2
+    version: v0.0.3
 generated_by: Module::Build version 0.35
 meta-spec:
   url: http://module-build.sourceforge.net/META-spec-v1.4.html

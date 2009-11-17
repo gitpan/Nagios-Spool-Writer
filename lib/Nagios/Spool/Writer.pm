@@ -1,11 +1,13 @@
 package Nagios::Spool::Writer;
 
 use strict;
-use Moose;
 use Carp;
 use File::Temp;
 use Fcntl;
-use version; our $VERSION = qv('0.0.2');
+use Nagios::Plugin::Threshold;
+Nagios::Plugin::Functions::_use_die(1);
+use version; our $VERSION = qv('0.0.3');
+use Moose;
 
 my $TEMPLATE = "cXXXXXX";
 my %RETURN_CODES = (
@@ -30,6 +32,15 @@ has 'early_timeout'       => ( is => 'rw', isa => 'Int', default=>0);
 has 'exited_ok'           => ( is => 'rw', isa => 'Int', default=>1);
 has 'return_code'         => ( is => 'rw', isa => 'Int', default=>0);
 has 'output'              => ( is => 'rw', isa => 'Str', default=>'no output');
+has 'tempfile' => ( is => 'ro', isa => 'File::Temp', lazy_build => 1);
+has 'threshold'           => (
+  is => 'ro',
+  isa => 'Nagios::Plugin::Threshold',
+  handles => [qw/set_thresholds/],
+  lazy => 1,
+  predicate => 'has_threshold',
+  default => sub { Nagios::Plugin::Threshold->new },
+);
 
 sub BUILD {
   my $self = shift;
@@ -37,20 +48,19 @@ sub BUILD {
   croak("$cd is not a directory") unless(-d $cd);
 };
 
-sub _get_tempfile {
+sub _build_tempfile {
   my $self = shift;
   my $fh = File::Temp->new(
     TEMPLATE => $TEMPLATE,
     DIR => $self->checkresults_dir,
   );
   $fh->unlink_on_destroy(0);
-  $self->{fh} = $fh;
   return $fh;
 }
 
 sub _touch_file {
   my $self = shift;
-  my $fh = $self->{fh};
+  my $fh = $self->tempfile;
   my $file = $fh->filename.".ok";
   sysopen my $t,$file,O_WRONLY|O_CREAT|O_NONBLOCK|O_NOCTTY
     or croak("Can't create $file : $!");
@@ -59,7 +69,7 @@ sub _touch_file {
 
 sub write_file {
   my $self = shift;
-  my $fh = $self->_get_tempfile;
+  my $fh = $self->tempfile;
   print $fh "### Active Check Result File ###\n";
   print $fh 'file_time=',$self->file_time,"\n";
   print $fh "\n";
@@ -82,6 +92,15 @@ sub write_file {
              $self->_status_code, " - ", $self->_quoted_output, "\n";
   $self->_touch_file;
   return $fh->filename;
+}
+
+sub set_status {
+  my $self = shift;
+  my $value = shift;
+  unless($self->has_threshold) {
+    croak("you have to call set_thresholds before calling set_status");
+  }
+  $self->return_code($self->threshold->get_status($value))
 }
 
 sub _status_code {
@@ -178,9 +197,29 @@ this method, for example:
 This also sets the value of STATUS (see check_name).
 It defaults to `0' if omited.
 
+Instead of setting the return_code directly you can use set_thresholds
+and set_status. (See METHODS).
+
 =back
 
 =head1 METHODS
+
+=head2 set_thresholds
+
+This set's up an Nagios::Plugin::Threshold object.
+
+  $ns->set_thresholds(
+     warning => <rangespec>,
+     critical => <rangespec>,
+  );
+
+For details see 
+L<http://nagiosplug.sourceforge.net/developer-guidelines.html#THRESHOLDFORMAT>
+
+=head2 set_status VALUE
+
+Does value checking of VALUE against the threshold object created with
+C<set_thresholds> and sets C<return_code> accordingly.
 
 =head2 write_file
 
