@@ -5,8 +5,10 @@ use Carp;
 use File::Temp;
 use Fcntl;
 use Nagios::Plugin::Threshold;
+use Nagios::Plugin::Performance;
 Nagios::Plugin::Functions::_use_die(1);
-use version; our $VERSION = qv('0.0.3');
+use version; our $VERSION = qv('0.1.0');
+use overload '""' => \&to_string;
 use Moose;
 
 my $TEMPLATE = "cXXXXXX";
@@ -22,7 +24,7 @@ has 'check_name'	  => ( is => 'rw', isa => 'Str', required => 1);
 has 'host_name'           => ( is => 'rw', isa => 'Str', required=>1);
 has 'service_description' => ( is => 'rw', isa => 'Str');
 has 'file_time'           => ( is => 'rw', isa => 'Int', default => time );
-has 'check_type'          => ( is => 'rw', isa => 'Int', default => 0);
+has 'check_type'          => ( is => 'rw', isa => 'Int', default => 1);
 has 'check_options'       => ( is => 'rw', isa => 'Int', default => 0);
 has 'scheduled_check'     => ( is => 'rw', isa => 'Int', default => 0);
 has 'latency'             => ( is => 'rw', isa => 'Num', default => 0);
@@ -41,12 +43,29 @@ has 'threshold'           => (
   predicate => 'has_threshold',
   default => sub { Nagios::Plugin::Threshold->new },
 );
+has 'performance' => (
+  traits => ['Array'],
+  is => 'ro',
+  isa => 'ArrayRef[Nagios::Plugin::Performance]',
+  default => sub { [] },
+  lazy => 1,
+  predicate => 'has_performance',
+  handles => {
+     _performance_add => 'push',
+  }
+);
 
 sub BUILD {
   my $self = shift;
   my $cd = $self->checkresults_dir;
   croak("$cd is not a directory") unless(-d $cd);
 };
+
+sub add_perf {
+  my $self = shift;
+  my $perf = Nagios::Plugin::Performance->new(@_);
+  $self->_performance_add($perf);
+}
 
 sub _build_tempfile {
   my $self = shift;
@@ -67,29 +86,35 @@ sub _touch_file {
   close $t or croak("Can't close $file : $!");
 }
 
+sub to_string {
+  my $self = shift;
+  my $string = "";
+  $string.="### Active Check Result File ###\n";
+  $string.=sprintf "file_time=%d\n\n",$self->file_time;
+  $string.="### Nagios Service Check Result ###\n";
+  $string.=sprintf "# Time: %s\n",scalar localtime $self->file_time;
+  $string.=sprintf "host_name=%s\n", $self->host_name;
+  if(defined($self->service_description)) {
+    $string.=sprintf "service_description=%s\n", $self->service_description;
+  }
+  $string.=sprintf "check_type=%d\n", $self->check_type;
+  $string.=sprintf "check_options=%d\n", $self->check_options;
+  $string.=sprintf "scheduled_check=%d\n", $self->scheduled_check;
+  $string.=sprintf "latency=%f\n", $self->latency;
+  $string.=sprintf "start_time=%f\n", $self->start_time;
+  $string.=sprintf "finish_time=%f\n", $self->finish_time;
+  $string.=sprintf "early_timeout=%d\n", $self->early_timeout;
+  $string.=sprintf "exited_ok=%d\n", $self->exited_ok;
+  $string.=sprintf "return_code=%d\n", $self->return_code;
+  $string.=sprintf "output=%s %s - %s\n", $self->check_name, 
+             $self->_status_code, $self->_quoted_output;
+  return $string;
+}
+
 sub write_file {
   my $self = shift;
   my $fh = $self->tempfile;
-  print $fh "### Active Check Result File ###\n";
-  print $fh 'file_time=',$self->file_time,"\n";
-  print $fh "\n";
-  print $fh "### Nagios Service Check Result ###\n";
-  print $fh '# Time: ', scalar localtime $self->file_time, "\n";
-  print $fh 'host_name=', $self->host_name, "\n";
-  if(defined($self->service_description)) {
-    print $fh 'service_description=', $self->service_description, "\n"
-  }
-  print $fh 'check_type=', $self->check_type, "\n";
-  print $fh 'check_options=', $self->check_options, "\n";
-  print $fh 'scheduled_check=', $self->scheduled_check, "\n";
-  print $fh 'latency=', $self->latency, "\n";
-  print $fh 'start_time=', $self->start_time, "\n";
-  print $fh 'finish_time=', $self->finish_time, "\n";
-  print $fh 'early_timeout=', $self->early_timeout, "\n";
-  print $fh 'exited_ok=', $self->exited_ok, "\n";
-  print $fh 'return_code=', $self->return_code, "\n";
-  print $fh 'output=', $self->check_name, " ",
-             $self->_status_code, " - ", $self->_quoted_output, "\n";
+  print $fh $self->to_string;
   $self->_touch_file;
   return $fh->filename;
 }
@@ -112,8 +137,19 @@ sub _status_code {
 sub _quoted_output {
   my $self = shift;
   my $output = $self->output;
+  # remove trailing newlines and quote the remaining ones
+  $output =~ s/(?:\r?\n)*$//;
   $output =~ s/\n/\\n/g;
+  if($self->has_performance) {
+    return $output . " | ".$self->_perf_string;
+  }
   return $output;
+}
+
+sub _perf_string {
+  my $self = shift;
+  return "" unless($self->has_performance);
+  return join (" ", map { $_->perfoutput } @{ $self->performance });
 }
 
 no Moose;
@@ -204,7 +240,7 @@ and set_status. (See METHODS).
 
 =head1 METHODS
 
-=head2 set_thresholds
+=head2 set_thresholds HASH
 
 This set's up an Nagios::Plugin::Threshold object.
 
@@ -221,6 +257,19 @@ L<http://nagiosplug.sourceforge.net/developer-guidelines.html#THRESHOLDFORMAT>
 Does value checking of VALUE against the threshold object created with
 C<set_thresholds> and sets C<return_code> accordingly.
 
+=head2 add_perf HASH
+
+  $ns->add_perf(
+     label => 'time',
+     value => '0.1',
+     uom   => 's',
+  );
+
+This adds Performance Data to the object. See
+L<Nagios::Plugin::Performance> on how to use this. Finally the
+performance data is appended to the first line of C<output>. Can
+be called multiple times to add more performance data.
+
 =head2 write_file
 
 Write the check_result into Nagios' check_result_path.
@@ -232,6 +281,12 @@ likely to brake in the future.
 
 Also it interacts with an undocumented feature of Nagios. This
 feature may disappear in the future.
+
+=head1 DEVELOPMENT
+
+Development takes place on github:
+
+L<http://github.com/datamuc/Nagios-Spool-Writer>
 
 =head1 AUTHOR
 
@@ -245,43 +300,3 @@ This library is free software; you can redistribute it and/or modify
 it under the same terms as Perl itself.
 
 =cut
-
-Service Check:
-### Active Check Result File ###
-file_time=1258065708
-
-### Nagios Service Check Result ###
-# Time: Thu Nov 12 23:41:48 2009
-host_name=localhost
-service_description=GLASSFISH
-check_type=0
-check_options=0
-scheduled_check=1
-reschedule_check=1
-latency=0.043000
-start_time=1258065708.44190
-finish_time=1258065708.271862
-early_timeout=0
-exited_ok=1
-return_code=3
-output=JMX4PERL UNKNOWN - Cannot fetch performance data\nError while fetching http://localhost:8080/j4p/search/*%3Aj2eeType%3DJ2EEServer%2C* :\n\n500 Can't connect to localhost:8080 (connect: Connection refused)\n=================================================================\n\n
-
-Hostcheck:
-### Active Check Result File ###
-file_time=1258284244
-
-### Nagios Host Check Result ###
-# Time: Sun Nov 15 12:24:04 2009
-host_name=localhost
-check_type=0
-check_options=1
-scheduled_check=1
-reschedule_check=1
-latency=2.602000
-start_time=1258284244.602645
-finish_time=1258284248.617772
-early_timeout=0
-exited_ok=1
-return_code=0
-output=PING OK - Packet loss = 0%, RTA = 0.07 ms|rta=0.070000ms;3000.000000;5000.000000;0.000000 pl=0%;80;100;0\n
-
